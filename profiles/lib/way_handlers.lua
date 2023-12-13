@@ -304,6 +304,19 @@ function WayHandlers.speed(profile,way,result,data)
   end
 end
 
+function WayHandlers.clamp(value, min, max, default)
+        if value == nil then
+           return default
+        end
+        if value < min then
+           return min
+        end
+        if value > max then
+           return max
+        end
+        return value
+end
+
 -- add class information
 function WayHandlers.classes(profile,way,result,data)
     if not profile.classes then
@@ -419,8 +432,14 @@ function WayHandlers.penalties(profile,way,result,data)
     sideroad_penalty = profile.side_road_multiplier
   end
 
-  local forward_penalty = math.min(service_penalty, width_penalty, alternating_penalty, sideroad_penalty)
-  local backward_penalty = math.min(service_penalty, width_penalty, alternating_penalty, sideroad_penalty)
+  local custom_route_weight = 1.0
+  local route_weight_factor = way:get_value_by_key("route_weight_factor:motor_vehicle")
+  if route_weight_factor then
+    custom_route_weight=1+WayHandlers.clamp(tonumber(route_weight_factor), -0.8, 0.8, 0)
+  end
+
+  local forward_penalty = math.min(service_penalty, width_penalty, alternating_penalty, sideroad_penalty)*custom_route_weight
+  local backward_penalty = math.min(service_penalty, width_penalty, alternating_penalty, sideroad_penalty)*custom_route_weight
 
   if profile.properties.weight_name == 'routability' then
     if result.forward_speed > 0 then
