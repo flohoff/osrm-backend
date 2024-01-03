@@ -75,6 +75,7 @@ function setup()
 
     access_tag_whitelist = Set {
       'yes',
+      'designated',
       'permissive'
     },
 
