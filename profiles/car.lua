@@ -73,6 +73,11 @@ function setup()
       'hov'
     },
 
+    access_tag_whitelist = Set {
+      'yes',
+      'permissive'
+    },
+
     access_tag_blacklist = Set {
       'no',
       'agricultural',
@@ -414,7 +419,7 @@ function process_way(profile, way, result, relations)
 
     -- determine access status by checking our hierarchy of
     -- access tags, e.g: motorcar, motor_vehicle, vehicle
-    WayHandlers.access,
+    WayHandlers.access_whitelist,
 
     -- check whether forward/backward directions are routable
     WayHandlers.oneway,

@@ -237,6 +237,54 @@ function WayHandlers.way_classification_for_turn(profile,way,result,data)
   end
 end
 
+-- reverse access tag processing - only whitelist and restricted_whitelist
+function WayHandlers.access_whitelist_unidirectional(profile, access_string, inputmode)
+
+    if not access_string then
+        return false, inputmode
+    end
+
+    local restricted = false
+    local unknown = false
+
+    local accesses = Utils.string_list_tokens(access_string)
+
+    for i, access in ipairs(accesses) do
+        if profile.restricted_access_tag_list[access] then
+            -- This one allows restricted access - check further
+            restricted = true
+        elseif profile.access_tag_whitelist[access] then
+            -- Whitelisted access string - We are happy
+            return false, inputmode
+        else
+            unknown = true
+        end
+	--print(string.format("Access %s Restricted %s Unknown %s\n", access, restricted, unknown))
+    end
+
+    if not unknown and restricted then
+        return true, inputmode
+    end
+
+    return false, mode.inaccessible
+end
+
+
+function WayHandlers.access_whitelist(profile,way,result,data)
+
+  data.forward_access, data.backward_access =
+    Tags.get_forward_backward_by_set(way,data,profile.access_tags_hierarchy)
+
+  result.forward_restricted, result.forward_mode =
+    WayHandlers.access_whitelist_unidirectional(profile, data.forward_access, result.forward_mode)
+
+  result.backward_restricted, result.backward_mode =
+    WayHandlers.access_whitelist_unidirectional(profile, data.backward_access, result.backward_mode)
+
+  if result.forward_mode == mode.inaccessible and result.backward_mode == mode.inaccessible then
+    return false
+  end
+end
 
 -- check accessibility by traversing our access tag hierarchy
 function WayHandlers.access(profile,way,result,data)
