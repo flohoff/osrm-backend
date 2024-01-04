@@ -262,7 +262,7 @@ function WayHandlers.access_whitelist_unidirectional(profile, access_string, inp
 	--print(string.format("Access %s Restricted %s Unknown %s\n", access, restricted, unknown))
     end
 
-    if not unknown and restricted then
+    if restricted then
         return true, inputmode
     end
 
