@@ -432,6 +432,10 @@ function WayHandlers.surface(profile,way,result,data)
   end
 end
 
+local function isempty(s)
+  return s == nil or s == ''
+end
+
 -- scale speeds to get better average driving times
 function WayHandlers.penalties(profile,way,result,data)
   -- heavily penalize a way tagged with all HOV lanes
@@ -442,29 +446,54 @@ function WayHandlers.penalties(profile,way,result,data)
     service_penalty = profile.service_penalties[service]
   end
 
-  local width_penalty = 1.0
-  local width = math.huge
-  local lanes = math.huge
-  local width_string = way:get_value_by_key("width")
-  if width_string and tonumber(width_string:match("%d*")) then
-    width = tonumber(width_string:match("%d*"))
-  end
+  local is_bidirectional = result.forward_mode ~= mode.inaccessible and
+                           result.backward_mode ~= mode.inaccessible
 
+  local lane_penalty = 1.0
+  local lanes = math.huge
   local lanes_string = way:get_value_by_key("lanes")
   if lanes_string and tonumber(lanes_string:match("%d*")) then
     lanes = tonumber(lanes_string:match("%d*"))
   end
 
-  local is_bidirectional = result.forward_mode ~= mode.inaccessible and
-                           result.backward_mode ~= mode.inaccessible
-
   local lanemarkings = way:get_value_by_key("lane_markings")
   if (lanemarkings and lanemarkings == 'no' and is_bidirectional) then
-    width_penalty = 0.75
+    lane_penalty = 0.75
   end
 
-  if width <= 3 or (lanes <= 1 and is_bidirectional) then
-    width_penalty = 0.5
+  if lanes <= 1 and is_bidirectional then
+    lane_penalty = 0.5
+  end
+
+  local width = math.huge
+  local width_penalty = 1.0
+  local width_string = way:get_value_by_key("width")
+  if width_string then
+    width = tonumber(width_string)
+  end
+
+  if not isempty(width) then
+    if is_bidirectional then
+      -- Trucks are 2.55m wide. If we have less than two times that space 
+      -- plus side distance we should assume some sort of penalty
+      -- Car drivers typically need the same room for feeling safe
+      -- <- 0.5 -> <- Truck 2.55 -> <- 0.5 -> <- Truck 2.55 -> <- 0.5->
+      if width < 6 then
+        width_penalty = 0.8
+      elseif width <= 5 then
+        width_penalty = 0.75
+      elseif width <= 4 then
+        width_penalty = 0.6
+      elseif width <= 3 then
+        width_penalty = 0.5
+      end
+    else
+      if width <= 4 then
+        width_penalty = 0.8
+      elseif width <= 3 then
+        width_penalty = 0.6
+      end
+    end
   end
 
   -- Handle high frequency reversible oneways (think traffic signal controlled, changing direction every 15 minutes).
@@ -486,8 +515,8 @@ function WayHandlers.penalties(profile,way,result,data)
     custom_route_weight=1+WayHandlers.clamp(tonumber(route_weight_factor), -0.8, 0.8, 0)
   end
 
-  local forward_penalty = math.min(service_penalty, width_penalty, alternating_penalty, sideroad_penalty)*custom_route_weight
-  local backward_penalty = math.min(service_penalty, width_penalty, alternating_penalty, sideroad_penalty)*custom_route_weight
+  local forward_penalty = math.min(service_penalty, lane_penalty, width_penalty, alternating_penalty, sideroad_penalty)*custom_route_weight
+  local backward_penalty = math.min(service_penalty, lane_penalty, width_penalty, alternating_penalty, sideroad_penalty)*custom_route_weight
 
   if profile.properties.weight_name == 'routability' then
     if result.forward_speed > 0 then
