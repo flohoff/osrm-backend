@@ -435,6 +435,73 @@ function process_node(profile, node, result, relations)
   Obstacles.process_node(profile, node)
 end
 
+local way_handlers = Sequence {
+  -- set the default mode for this profile. if can be changed later
+  -- in case it turns we're e.g. on a ferry
+  WayHandlers.default_mode,
+
+  -- check various tags that could indicate that the way is not
+  -- routable. this includes things like status=impassable,
+  -- toll=yes and oneway=reversible
+  WayHandlers.blocked_ways,
+  WayHandlers.avoid_ways,
+  WayHandlers.handle_height,
+  WayHandlers.handle_width,
+  WayHandlers.handle_length,
+  WayHandlers.handle_weight,
+
+  -- determine access status by checking our hierarchy of
+  -- access tags, e.g: motorcar, motor_vehicle, vehicle
+  WayHandlers.access,
+
+  -- check whether forward/backward directions are routable
+  WayHandlers.oneway,
+
+  -- check a road's destination
+  WayHandlers.destinations,
+
+  -- check whether we're using a special transport mode
+  WayHandlers.ferries,
+  WayHandlers.movables,
+
+  -- handle service road restrictions
+  WayHandlers.service,
+
+  -- handle hov
+  WayHandlers.hov,
+
+  -- compute speed taking into account way type, maxspeed tags, etc.
+  WayHandlers.speed,
+  WayHandlers.maxspeed,
+  WayHandlers.surface,
+
+  -- apply vehicle-specific maximum speed cap before calculating rates
+  WayHandlers.vehicle_speed_cap,
+
+  WayHandlers.penalties,
+
+  -- compute class labels
+  WayHandlers.classes,
+
+  -- handle turn lanes and road classification, used for guidance
+  WayHandlers.turn_lanes,
+  WayHandlers.classification,
+
+  -- handle various other flags
+  WayHandlers.roundabouts,
+  WayHandlers.startpoint,
+  WayHandlers.driving_side,
+
+  -- set name, ref and pronunciation
+  WayHandlers.names,
+
+  -- set weight properties of the way
+  WayHandlers.weights,
+
+  -- set classification of ways relevant for turns
+  WayHandlers.way_classification_for_turn
+}
+
 function process_way(profile, way, result, relations)
   -- the intial filtering of ways based on presence of tags
   -- affects processing times significantly, because all ways
@@ -464,74 +531,7 @@ function process_way(profile, way, result, relations)
     return
   end
 
-  handlers = Sequence {
-    -- set the default mode for this profile. if can be changed later
-    -- in case it turns we're e.g. on a ferry
-    WayHandlers.default_mode,
-
-    -- check various tags that could indicate that the way is not
-    -- routable. this includes things like status=impassable,
-    -- toll=yes and oneway=reversible
-    WayHandlers.blocked_ways,
-    WayHandlers.avoid_ways,
-    WayHandlers.handle_height,
-    WayHandlers.handle_width,
-    WayHandlers.handle_length,
-    WayHandlers.handle_weight,
-
-    -- determine access status by checking our hierarchy of
-    -- access tags, e.g: motorcar, motor_vehicle, vehicle
-    WayHandlers.access,
-
-    -- check whether forward/backward directions are routable
-    WayHandlers.oneway,
-
-    -- check a road's destination
-    WayHandlers.destinations,
-
-    -- check whether we're using a special transport mode
-    WayHandlers.ferries,
-    WayHandlers.movables,
-
-    -- handle service road restrictions
-    WayHandlers.service,
-
-    -- handle hov
-    WayHandlers.hov,
-
-    -- compute speed taking into account way type, maxspeed tags, etc.
-    WayHandlers.speed,
-    WayHandlers.maxspeed,
-    WayHandlers.surface,
-
-    -- apply vehicle-specific maximum speed cap before calculating rates
-    WayHandlers.vehicle_speed_cap,
-
-    WayHandlers.penalties,
-
-    -- compute class labels
-    WayHandlers.classes,
-
-    -- handle turn lanes and road classification, used for guidance
-    WayHandlers.turn_lanes,
-    WayHandlers.classification,
-
-    -- handle various other flags
-    WayHandlers.roundabouts,
-    WayHandlers.startpoint,
-    WayHandlers.driving_side,
-
-    -- set name, ref and pronunciation
-    WayHandlers.names,
-
-    -- set weight properties of the way
-    WayHandlers.weights,
-
-    -- set classification of ways relevant for turns
-    WayHandlers.way_classification_for_turn
-  }
-
-  WayHandlers.run(profile, way, result, data, handlers, relations)
+  WayHandlers.run(profile, way, result, data, way_handlers, relations)
 
   if profile.cardinal_directions then
       Relations.process_way_refs(way, relations, result)
