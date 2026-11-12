@@ -54,6 +54,24 @@ const char *get_value_by_key_default(const T &object, const char *key, const cha
     return (value && *value) ? value : nullptr;
 }
 
+// Raw Lua binding: skips sol overload dispatch and base-class type checks
+template <class T> int luaGetValueByKey(lua_State *L)
+{
+    void *raw = lua_touserdata(L, 1);
+    if (raw == nullptr)
+        return luaL_error(L, "get_value_by_key: bad self");
+    const T *self = *static_cast<T **>(sol::detail::align_usertype_pointer(raw));
+    const char *key = luaL_checkstring(L, 2);
+    const char *def = lua_isnoneornil(L, 3) ? nullptr : luaL_checkstring(L, 3);
+    const osmium::OSMObject &object = *self;
+    const char *value = def ? object.get_value_by_key(key, def) : object.get_value_by_key(key);
+    if (value && *value)
+        lua_pushstring(L, value);
+    else
+        lua_pushnil(L);
+    return 1;
+}
+
 template <class T> bool has_key(const T &object, const char *key)
 {
     const char *value = object.get_value_by_key(key);
@@ -358,6 +376,8 @@ void Sol2ScriptingEnvironment::InitContext(LuaScriptingContext &context)
                                                  get_osmium_member_role,
                                                  "get_members",
                                                  get_osmium_relation_members,
+                                                 "get_value_by_key",
+                                                 &luaGetValueByKey<osmium::Relation>,
                                                  sol::base_classes,
                                                  sol::bases<osmium::OSMObject>());
 
@@ -381,6 +401,8 @@ void Sol2ScriptingEnvironment::InitContext(LuaScriptingContext &context)
         get_location_tag,
         "is_left_hand_traffic",
         is_left_hand_traffic,
+        "get_value_by_key",
+        &luaGetValueByKey<osmium::Way>,
         sol::base_classes,
         sol::bases<osmium::OSMObject>());
 
@@ -389,6 +411,8 @@ void Sol2ScriptingEnvironment::InitContext(LuaScriptingContext &context)
                                              &osmium::Node::location,
                                              "get_location_tag",
                                              get_location_tag,
+                                             "get_value_by_key",
+                                             &luaGetValueByKey<osmium::Node>,
                                              sol::base_classes,
                                              sol::bases<osmium::OSMObject>());
 
