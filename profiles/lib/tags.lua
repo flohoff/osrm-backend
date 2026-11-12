@@ -2,6 +2,17 @@
 
 local Tags = {}
 
+-- memoized key .. suffix, avoids building a new string per call
+local function suffixed(suffix)
+  return setmetatable({}, { __index = function(t, key)
+    local v = key .. suffix
+    t[key] = v
+    return v
+  end })
+end
+local forward_key = suffixed(":forward")
+local backward_key = suffixed(":backward")
+
 -- return [forward,backward] values for a specific tag.
 -- e.g. for maxspeed search forward:
 --   maxspeed:forward
@@ -11,8 +22,8 @@ local Tags = {}
 --   maxspeed
 
 function Tags.get_forward_backward_by_key(way,data,key)
-  local forward = way:get_value_by_key(key .. ':forward')
-  local backward = way:get_value_by_key(key .. ':backward')
+  local forward = way:get_value_by_key(forward_key[key])
+  local backward = way:get_value_by_key(backward_key[key])
 
   if not forward or not backward then
      local common = way:get_value_by_key(key)
@@ -47,10 +58,10 @@ function Tags.get_forward_backward_by_set(way,data,keys)
   local forward, backward
   for i,key in ipairs(keys) do
     if not forward then
-      forward = way:get_value_by_key(key .. ':forward')
+      forward = way:get_value_by_key(forward_key[key])
     end
     if not backward then
-      backward = way:get_value_by_key(key .. ':backward')
+      backward = way:get_value_by_key(backward_key[key])
     end
     if not forward or not backward then
       local common = way:get_value_by_key(key)
@@ -120,9 +131,10 @@ end
 function Tags.get_constant_by_key_value(way,lookup)
   for key,set in pairs(lookup) do
     local way_value = way:get_value_by_key(key)
-    for value,t in pairs(set) do
-      if way_value == value then
-        return key,value,t
+    if way_value then
+      local t = set[way_value]
+      if t ~= nil then
+        return key,way_value,t
       end
     end
   end
