@@ -5,13 +5,42 @@
 
 #include "util/typedefs.hpp"
 
-#include <memory>
-#include <unordered_map>
+#include <boost/assert.hpp>
 
+#include <algorithm>
+#include <limits>
+#include <memory>
 #include <vector>
 
 namespace osrm::extractor
 {
+
+// Dense EdgeID -> unsigned map, much faster than unordered_map
+class FlatEdgeIndexMap
+{
+  public:
+    bool contains(const EdgeID id) const { return id < m_data.size() && m_data[id] != INVALID; }
+    unsigned at(const EdgeID id) const
+    {
+        BOOST_ASSERT(contains(id));
+        return m_data[id];
+    }
+    void set(const EdgeID id, const unsigned value)
+    {
+        if (id >= m_data.size())
+            m_data.resize(std::max<std::size_t>(id + 1, m_data.size() * 2), INVALID);
+        m_data[id] = value;
+    }
+    void erase(const EdgeID id)
+    {
+        if (id < m_data.size())
+            m_data[id] = INVALID;
+    }
+
+  private:
+    static constexpr unsigned INVALID = std::numeric_limits<unsigned>::max();
+    std::vector<unsigned> m_data;
+};
 
 class CompressedEdgeContainer
 {
@@ -75,9 +104,9 @@ class CompressedEdgeContainer
     void IncreaseFreeList();
     std::vector<OnewayEdgeBucket> m_compressed_oneway_geometries;
     std::vector<unsigned> m_free_list;
-    std::unordered_map<EdgeID, unsigned> m_edge_id_to_list_index_map;
-    std::unordered_map<EdgeID, unsigned> m_forward_edge_id_to_zipped_index_map;
-    std::unordered_map<EdgeID, unsigned> m_reverse_edge_id_to_zipped_index_map;
+    FlatEdgeIndexMap m_edge_id_to_list_index_map;
+    FlatEdgeIndexMap m_forward_edge_id_to_zipped_index_map;
+    FlatEdgeIndexMap m_reverse_edge_id_to_zipped_index_map;
     std::unique_ptr<SegmentDataContainer> segment_data;
 };
 } // namespace osrm::extractor
