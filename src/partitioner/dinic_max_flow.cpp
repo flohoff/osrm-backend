@@ -130,15 +130,26 @@ DinicMaxFlow::ComputeLevelGraph(const BisectionGraphView &view,
             if (source_nodes.contains(edge.target))
                 levels[edge.target] = 0;
     }
+    // flat lookups, the hash/tree lookups are cache-miss bound on large graphs
+    std::vector<char> is_sink(view.NumberOfNodes(), 0);
+    for (const auto sink : sink_nodes)
+    {
+        BOOST_ASSERT(sink < view.NumberOfNodes());
+        is_sink[sink] = 1;
+    }
+    std::vector<char> has_out_flow(view.NumberOfNodes(), 0);
+    for (std::size_t node = 0; node < flow.size(); ++node)
+        has_out_flow[node] = !flow[node].empty();
+
     // check if there is flow present on an edge
     const auto has_flow = [&](const NodeID from, const NodeID to)
-    { return flow[from].contains(to); };
+    { return has_out_flow[from] && flow[from].contains(to); };
 
     // perform a relaxation step in the BFS algorithm
     const auto relax_node = [&](const NodeID node_id)
     {
         // don't relax sink nodes
-        if (sink_nodes.contains(node_id))
+        if (is_sink[node_id])
             return;
 
         const auto level = levels[node_id] + 1;
