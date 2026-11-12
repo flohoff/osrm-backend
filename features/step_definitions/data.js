@@ -104,6 +104,8 @@ Given(/^the nodes$/, function (table, callback) {
     for (const key in row) {
       if (key == 'id') {
         node.setID(row[key]);
+      } else if (row[key] === '(nil)') {
+        delete node.tags[key];
       } else {
         node.addTag(key, row[key]);
       }

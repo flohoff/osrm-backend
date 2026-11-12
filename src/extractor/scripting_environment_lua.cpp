@@ -805,6 +805,11 @@ void Sol2ScriptingEnvironment::InitContext(LuaScriptingContext &context)
             if (use_turn_restrictions != sol::nullopt)
                 context.properties.use_turn_restrictions = use_turn_restrictions.value();
 
+            sol::optional<bool> call_tagless_node_function =
+                properties["call_tagless_node_function"];
+            if (call_tagless_node_function != sol::nullopt)
+                context.properties.call_tagless_node_function = call_tagless_node_function.value();
+
             sol::optional<bool> left_hand_driving = properties["left_hand_driving"];
             if (left_hand_driving != sol::nullopt)
                 context.properties.left_hand_driving = left_hand_driving.value();

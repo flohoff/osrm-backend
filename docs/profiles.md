@@ -117,6 +117,7 @@ continue_straight_at_waypoint | Boolean  | Must the route continue straight on a
 max_speed_for_map_matching    | Float    | Maximum vehicle speed to be assumed in matching (in m/s)
 max_turn_weight               | Float    | Maximum turn penalty weight
 force_split_edges             | Boolean  | True value forces a split of forward and backward edges of extracted ways and guarantees that `process_segment` will be called for all segments (default `false`)
+call_tagless_node_function    | Boolean  | Call `process_node` for nodes without tags? Set `false` if it only acts on tags, saves time (default `true`)
 
 The following additional global properties can be set in the hash you return in the `setup` function:
 
