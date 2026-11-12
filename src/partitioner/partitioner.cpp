@@ -23,6 +23,8 @@
 
 #include <boost/assert.hpp>
 #include <tbb/global_control.h>
+#include <tbb/parallel_invoke.h>
+#include <tbb/task_group.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -122,64 +124,90 @@ int Partitioner::Run(const PartitionerConfig &config)
 
     TIMER_START(renumber);
     auto permutation = makePermutation(edge_based_graph, partitions);
-    renumber(edge_based_graph, permutation);
-    renumber(partitions, permutation);
-    {
-        renumber(mapping, permutation);
-        extractor::files::writeNBGMapping(config.GetOutputPath(".osrm.cnbg_to_ebg").string(),
-                                          mapping);
-    }
-    {
-        // If writing to a different output path, copy the file first since we mmap in-place
-        if (!config.output_path.empty())
+    // The renumbering jobs below are independent, run them concurrently
+    tbb::task_group renumber_tasks;
+    renumber_tasks.run([&] { renumber(edge_based_graph, permutation); });
+    renumber_tasks.run([&] { renumber(partitions, permutation); });
+    renumber_tasks.run(
+        [&]
         {
-            std::filesystem::copy_file(config.GetPath(".osrm.fileIndex"),
-                                       config.GetOutputPath(".osrm.fileIndex"),
-                                       std::filesystem::copy_options::overwrite_existing);
-        }
-        boost::iostreams::mapped_file segment_region;
-        auto segments = util::mmapFile<extractor::EdgeBasedNodeSegment>(
-            config.GetOutputPath(".osrm.fileIndex"), segment_region);
-        renumber(segments, permutation);
-    }
-    {
-        extractor::EdgeBasedNodeDataContainer node_data;
-        extractor::files::readNodeData(config.GetPath(".osrm.ebg_nodes"), node_data);
-        renumber(node_data, permutation);
-        extractor::files::writeNodeData(config.GetOutputPath(".osrm.ebg_nodes"), node_data);
-    }
-    {
-        std::vector<EdgeWeight> node_weights;
-        std::vector<EdgeDuration> node_durations;
-        std::vector<EdgeDuration> node_distances;
-        extractor::files::readEdgeBasedNodeWeightsDurations(
-            config.GetPath(".osrm.enw"), node_weights, node_durations);
-        extractor::files::readEdgeBasedNodeDistances(config.GetPath(".osrm.enw"), node_distances);
-        util::inplacePermutation(node_weights.begin(), node_weights.end(), permutation);
-        util::inplacePermutation(node_durations.begin(), node_durations.end(), permutation);
-        util::inplacePermutation(node_distances.begin(), node_distances.end(), permutation);
-        extractor::files::writeEdgeBasedNodeWeightsDurationsDistances(
-            config.GetOutputPath(".osrm.enw"), node_weights, node_durations, node_distances);
-    }
-    {
-        const auto &filename = config.GetPath(".osrm.maneuver_overrides");
-        const auto &output_filename = config.GetOutputPath(".osrm.maneuver_overrides");
-        std::vector<extractor::StorageManeuverOverride> maneuver_overrides;
-        std::vector<NodeID> node_sequences;
-        extractor::files::readManeuverOverrides(filename, maneuver_overrides, node_sequences);
-        renumber(maneuver_overrides, permutation);
-        renumber(node_sequences, permutation);
+            renumber(mapping, permutation);
+            extractor::files::writeNBGMapping(config.GetOutputPath(".osrm.cnbg_to_ebg").string(),
+                                              mapping);
+        });
+    renumber_tasks.run(
+        [&]
+        {
+            // If writing to a different output path, copy the file first since we mmap in-place
+            if (!config.output_path.empty())
+            {
+                std::filesystem::copy_file(config.GetPath(".osrm.fileIndex"),
+                                           config.GetOutputPath(".osrm.fileIndex"),
+                                           std::filesystem::copy_options::overwrite_existing);
+            }
+            boost::iostreams::mapped_file segment_region;
+            auto segments = util::mmapFile<extractor::EdgeBasedNodeSegment>(
+                config.GetOutputPath(".osrm.fileIndex"), segment_region);
+            renumber(segments, permutation);
+        });
+    renumber_tasks.run(
+        [&]
+        {
+            extractor::EdgeBasedNodeDataContainer node_data;
+            extractor::files::readNodeData(config.GetPath(".osrm.ebg_nodes"), node_data);
+            renumber(node_data, permutation);
+            extractor::files::writeNodeData(config.GetOutputPath(".osrm.ebg_nodes"), node_data);
+        });
+    renumber_tasks.run(
+        [&]
+        {
+            std::vector<EdgeWeight> node_weights;
+            std::vector<EdgeDuration> node_durations;
+            std::vector<EdgeDuration> node_distances;
+            extractor::files::readEdgeBasedNodeWeightsDurations(
+                config.GetPath(".osrm.enw"), node_weights, node_durations);
+            extractor::files::readEdgeBasedNodeDistances(config.GetPath(".osrm.enw"),
+                                                         node_distances);
+            tbb::parallel_invoke(
+                [&]
+                {
+                    util::inplacePermutation(node_weights.begin(), node_weights.end(), permutation);
+                },
+                [&]
+                {
+                    util::inplacePermutation(
+                        node_durations.begin(), node_durations.end(), permutation);
+                },
+                [&]
+                {
+                    util::inplacePermutation(
+                        node_distances.begin(), node_distances.end(), permutation);
+                });
+            extractor::files::writeEdgeBasedNodeWeightsDurationsDistances(
+                config.GetOutputPath(".osrm.enw"), node_weights, node_durations, node_distances);
+        });
+    renumber_tasks.run(
+        [&]
+        {
+            const auto &filename = config.GetPath(".osrm.maneuver_overrides");
+            const auto &output_filename = config.GetOutputPath(".osrm.maneuver_overrides");
+            std::vector<extractor::StorageManeuverOverride> maneuver_overrides;
+            std::vector<NodeID> node_sequences;
+            extractor::files::readManeuverOverrides(filename, maneuver_overrides, node_sequences);
+            renumber(maneuver_overrides, permutation);
+            renumber(node_sequences, permutation);
 
-        // Although the vector is already sorted, the rename function changes the identifiers, so
-        // the order is not sorted now. So we sort by `from_node` again, so that later lookups can
-        // be done with a binary search.
-        std::sort(maneuver_overrides.begin(),
-                  maneuver_overrides.end(),
-                  [](const auto &a, const auto &b) { return a.start_node < b.start_node; });
+            // Although the vector is already sorted, the rename function changes the identifiers,
+            // so the order is not sorted now. So we sort by `from_node` again, so that later
+            // lookups can be done with a binary search.
+            std::sort(maneuver_overrides.begin(),
+                      maneuver_overrides.end(),
+                      [](const auto &a, const auto &b) { return a.start_node < b.start_node; });
 
-        extractor::files::writeManeuverOverrides(
-            output_filename, maneuver_overrides, node_sequences);
-    }
+            extractor::files::writeManeuverOverrides(
+                output_filename, maneuver_overrides, node_sequences);
+        });
+    renumber_tasks.wait();
     if (std::filesystem::exists(config.GetOutputPath(".osrm.hsgr")))
     {
         util::Log(logWARNING) << "Found existing .osrm.hsgr file, removing. You need to re-run "
