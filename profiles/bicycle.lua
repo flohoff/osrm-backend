@@ -22,7 +22,7 @@ function setup()
       traffic_signal_penalty        = 2,
       --weight_name                   = 'cyclability',
       weight_name                   = 'duration',
-      process_call_tagless_node     = false,
+      call_tagless_node_function    = false,
       max_speed_for_map_matching    = 40/3.6, -- kmph -> m/s (reduced from 110 to realistic bicycle speed)
       use_turn_restrictions         = true,
       continue_straight_at_waypoint = false,

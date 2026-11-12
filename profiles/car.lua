@@ -23,7 +23,7 @@ function setup()
       -- weight_name                     = 'duration',
       -- For shortest distance without penalties for accessibility
       -- weight_name                     = 'distance',
-      process_call_tagless_node      = false,
+      call_tagless_node_function     = false,
       u_turn_penalty                 = 20,
       continue_straight_at_waypoint  = true,
       use_turn_restrictions          = true,
