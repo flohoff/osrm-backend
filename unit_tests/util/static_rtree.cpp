@@ -18,8 +18,10 @@
 #include <cstdint>
 
 #include <algorithm>
+#include <array>
 #include <random>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -299,6 +301,116 @@ BOOST_AUTO_TEST_CASE(equidistant_segments_are_ordered_by_geometry)
         BOOST_CHECK(result[0].fixed_projected_coordinate.lon <
                     result[1].fixed_projected_coordinate.lon);
     }
+}
+
+using TieCoord = std::pair<FloatLongitude, FloatLatitude>;
+using TieEdge = std::tuple<unsigned, unsigned, bool>;
+
+// Builds a tree from the tie segments plus random filler near the query and returns the
+// (u.lon, u.lat, v.lon, v.lat) of the nearest results.
+static std::vector<std::array<int32_t, 4>> nearestGeometry(std::vector<TieCoord> coords,
+                                                           std::vector<TieEdge> edges,
+                                                           const Coordinate &query,
+                                                           const unsigned num_results,
+                                                           const unsigned num_filler,
+                                                           const unsigned filler_seed)
+{
+    std::mt19937 g(filler_seed);
+    std::uniform_real_distribution<double> offset(0.01, 0.1), length(-0.002, 0.002);
+    for (unsigned i = 0; i < num_filler; ++i)
+    {
+        const double lon = 10.0 + (g() % 2 ? 1 : -1) * offset(g);
+        const double lat = (g() % 2 ? 1 : -1) * offset(g);
+        coords.push_back(TieCoord{FloatLongitude{lon}, FloatLatitude{lat}});
+        coords.push_back(TieCoord{FloatLongitude{lon + length(g)}, FloatLatitude{lat + length(g)}});
+        edges.push_back(TieEdge(coords.size() - 2, coords.size() - 1, true));
+    }
+    GraphFixture fixture(coords, edges);
+    TemporaryFile tmp;
+    auto rtree = make_rtree<MiniStaticRTree>(tmp.path, fixture);
+
+    std::vector<std::array<int32_t, 4>> geometry;
+    for (const auto &result : rtree.Nearest(query, num_results))
+    {
+        const auto &u = fixture.coords[result.data.u];
+        const auto &v = fixture.coords[result.data.v];
+        geometry.push_back({static_cast<int32_t>(u.lon),
+                            static_cast<int32_t>(u.lat),
+                            static_cast<int32_t>(v.lon),
+                            static_cast<int32_t>(v.lat)});
+    }
+    return geometry;
+}
+
+// The tree layout, and with it the storage order, changes with the surrounding data. Ties must
+// resolve the same way for every layout.
+BOOST_AUTO_TEST_CASE(equidistant_tie_order_is_independent_of_tree_layout)
+{
+    const std::vector<TieCoord> coords = {
+        TieCoord{FloatLongitude{10.000003}, FloatLatitude{-0.5}},
+        TieCoord{FloatLongitude{10.000003}, FloatLatitude{0.5}},
+        TieCoord{FloatLongitude{9.999997}, FloatLatitude{-0.5}},
+        TieCoord{FloatLongitude{9.999997}, FloatLatitude{0.5}},
+    };
+    const std::vector<TieEdge> edges = {TieEdge(0, 1, true), TieEdge(2, 3, true)};
+    const Coordinate query(FloatLongitude{10.0}, FloatLatitude{0.0});
+
+    const auto expected = nearestGeometry(coords, edges, query, 2, 0, 0);
+    BOOST_REQUIRE_EQUAL(expected.size(), 2);
+    for (unsigned seed = 1; seed <= 20; ++seed)
+        BOOST_CHECK(expected == nearestGeometry(coords, edges, query, 2, seed * 7, seed));
+}
+
+// Two collinear segments overlap, so both have the same nearest point to a query beside the
+// overlap. The one starting further south comes first, whatever the tree layout.
+BOOST_AUTO_TEST_CASE(overlapping_segments_are_ordered_by_geometry)
+{
+    const std::vector<TieCoord> coords = {
+        TieCoord{FloatLongitude{10.000003}, FloatLatitude{-0.5}},
+        TieCoord{FloatLongitude{10.000003}, FloatLatitude{0.2}},
+        TieCoord{FloatLongitude{10.000003}, FloatLatitude{-0.2}},
+        TieCoord{FloatLongitude{10.000003}, FloatLatitude{0.5}},
+    };
+    // listed north segment first, so storage order is the opposite of the expected result order
+    const std::vector<TieEdge> edges = {TieEdge(2, 3, true), TieEdge(0, 1, true)};
+    const Coordinate query(FloatLongitude{10.0}, FloatLatitude{0.0});
+
+    const auto expected = nearestGeometry(coords, edges, query, 2, 0, 0);
+    BOOST_REQUIRE_EQUAL(expected.size(), 2);
+    BOOST_CHECK(expected[0][1] < expected[1][1]);
+    for (unsigned seed = 1; seed <= 20; ++seed)
+        BOOST_CHECK(expected == nearestGeometry(coords, edges, query, 2, seed * 7, seed));
+}
+
+// Identical geometry cannot be separated by geometry. Both segments are returned, their order is
+// the storage order.
+BOOST_AUTO_TEST_CASE(identical_segments_are_all_returned)
+{
+    using Coord = std::pair<FloatLongitude, FloatLatitude>;
+    using Edge = std::tuple<unsigned, unsigned, bool>;
+    const std::vector<Coord> coords = {
+        Coord{FloatLongitude{10.000003}, FloatLatitude{-0.5}},
+        Coord{FloatLongitude{10.000003}, FloatLatitude{0.5}},
+        Coord{FloatLongitude{10.000003}, FloatLatitude{-0.5}},
+        Coord{FloatLongitude{10.000003}, FloatLatitude{0.5}},
+    };
+    const std::vector<Edge> edges = {Edge(0, 1, true), Edge(2, 3, true)};
+    GraphFixture fixture(coords, edges);
+    TemporaryFile tmp;
+    auto rtree = make_rtree<MiniStaticRTree>(tmp.path, fixture);
+
+    const auto result = rtree.Nearest(Coordinate(FloatLongitude{10.0}, FloatLatitude{0.0}), 2);
+    BOOST_REQUIRE_EQUAL(result.size(), 2);
+    const Coordinate projected_query{
+        web_mercator::fromWGS84(Coordinate(FloatLongitude{10.0}, FloatLatitude{0.0}))};
+    BOOST_CHECK_EQUAL(coordinate_calculation::squaredEuclideanDistance(
+                          result[0].fixed_projected_coordinate, projected_query),
+                      coordinate_calculation::squaredEuclideanDistance(
+                          result[1].fixed_projected_coordinate, projected_query));
+    std::vector<unsigned> targets = {result[0].data.v, result[1].data.v};
+    std::sort(targets.begin(), targets.end());
+    BOOST_CHECK_EQUAL(targets[0], 1);
+    BOOST_CHECK_EQUAL(targets[1], 3);
 }
 
 // Bug: If you querry a point that lies between two BBs that have a gap,
